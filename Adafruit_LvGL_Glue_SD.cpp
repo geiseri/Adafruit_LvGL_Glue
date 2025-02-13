@@ -29,7 +29,7 @@ static void *sd_open(lv_fs_drv_t *drv, const char *path, lv_fs_mode_t mode) {
     return NULL;
   }
 
-  file_t *fp = (file_t *)lv_mem_alloc(sizeof(file_t));
+  file_t *fp = (file_t *)malloc(sizeof(file_t));
 
   if (fp == NULL) {
     return NULL;
@@ -56,7 +56,7 @@ static lv_fs_res_t sd_close(lv_fs_drv_t *drv, void *file_p) {
 
   file_t *fp = (file_t *)file_p;
   lv_fs_res_t result = fp->close() ? LV_FS_RES_OK : LV_FS_RES_UNKNOWN;
-  lv_mem_free(fp);
+  free(fp);
 
   return result;
 }

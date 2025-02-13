@@ -1,11 +1,6 @@
 #include "Adafruit_LvGL_Glue.h"
 #include <lvgl.h>
 
-lv_disp_draw_buf_t Adafruit_LvGL_Glue::lv_disp_draw_buf;
-lv_disp_drv_t Adafruit_LvGL_Glue::lv_disp_drv;
-lv_color_t *Adafruit_LvGL_Glue::lv_pixel_buf;
-lv_indev_drv_t Adafruit_LvGL_Glue::lv_indev_drv;
-
 // ARCHITECTURE-SPECIFIC TIMER STUFF ---------------------------------------
 
 // Tick interval for LittlevGL internal timekeeping; 1 to 10 ms recommended
@@ -112,13 +107,12 @@ void TIMER_ISR(void) {
 #define ADC_YMIN 240
 #define ADC_YMAX 840
 
-static void touchscreen_read(struct _lv_indev_drv_t *indev_drv,
-                             lv_indev_data_t *data) {
+static void touchscreen_read( lv_indev_t *indev_drv,  lv_indev_data_t *data) {
   static lv_coord_t last_x = 0, last_y = 0;
   static uint8_t release_count = 0;
 
   // Get pointer to glue object from indev user data
-  Adafruit_LvGL_Glue *glue = (Adafruit_LvGL_Glue *)indev_drv->user_data;
+  Adafruit_LvGL_Glue *glue = static_cast<Adafruit_LvGL_Glue*>(lv_indev_get_user_data(indev_drv));
   Adafruit_SPITFT *disp = glue->display;
 
   if (glue->is_adc_touch) {
@@ -132,6 +126,7 @@ static void touchscreen_read(struct _lv_indev_drv_t *indev_drv,
     if (p.z < touch->pressureThreshhold) { // A zero-ish value
       release_count += (release_count < 255);
       if (release_count >= 4) {
+        
         data->state = LV_INDEV_STATE_REL; // Is REALLY RELEASED
       } else {
         data->state = LV_INDEV_STATE_PR; // Is STILL PRESSED
@@ -236,10 +231,10 @@ static void touchscreen_read(struct _lv_indev_drv_t *indev_drv,
 // This is the flush function required for LittlevGL screen updates.
 // It receives a bounding rect and an array of pixel data (conveniently
 // already in 565 format, so the Earth was lucky there).
-static void lv_flush_callback(lv_disp_drv_t *disp, const lv_area_t *area,
-                              lv_color_t *color_p) {
+static void lv_flush_callback(lv_display_t *display_drv, const lv_area_t *area, unsigned char *data) {
   // Get pointer to glue object from indev user data
-  Adafruit_LvGL_Glue *glue = (Adafruit_LvGL_Glue *)disp->user_data;
+  Adafruit_LvGL_Glue *glue = static_cast<Adafruit_LvGL_Glue*>(lv_display_get_user_data(display_drv));
+
   Adafruit_SPITFT *display = glue->display;
 
   if (!glue->first_frame) {
@@ -253,9 +248,8 @@ static void lv_flush_callback(lv_disp_drv_t *disp, const lv_area_t *area,
   uint16_t height = (area->y2 - area->y1 + 1);
   display->startWrite();
   display->setAddrWindow(area->x1, area->y1, width, height);
-  display->writePixels((uint16_t *)color_p, width * height, false,
-                       LV_COLOR_16_SWAP);
-  lv_disp_flush_ready(disp);
+  display->writePixels(reinterpret_cast<uint16_t*>(data), width * height, false, LV_BIG_ENDIAN_SYSTEM);
+  lv_disp_flush_ready(display_drv);
 }
 
 #if (LV_USE_LOG)
@@ -285,7 +279,6 @@ Adafruit_LvGL_Glue::Adafruit_LvGL_Glue(void) : first_frame(true) {
  *
  */
 Adafruit_LvGL_Glue::~Adafruit_LvGL_Glue(void) {
-  delete[] lv_pixel_buf;
 #if defined(ARDUINO_ARCH_SAMD)
   delete zerotimer;
 #endif
@@ -368,49 +361,44 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft, void *touch,
   // Allocate LvGL display buffer (x2 because DMA double buffering)
   LvGLStatus status = LVGL_ERR_ALLOC;
 #if defined(USE_SPI_DMA)
-  if ((lv_pixel_buf = new lv_color_t[tft->width() * LV_BUFFER_ROWS * 2])) {
+  lv_pixel_buf.resize(tft->width() * LV_BUFFER_ROWS * 2);
+  if(true) {
 #else
-  if ((lv_pixel_buf = new lv_color_t[tft->width() * LV_BUFFER_ROWS])) {
+  lv_pixel_buf.resize(tft->width() * LV_BUFFER_ROWS);
+  if(true) {
 #endif
 
     display = tft;
     touchscreen = (void *)touch;
 
-    // Initialize LvGL display buffers. The "second half" buffer is only
-    // used if USE_SPI_DMA is enabled in Adafruit_GFX.
-    lv_disp_draw_buf_init(&lv_disp_draw_buf, lv_pixel_buf,
-#if defined(USE_SPI_DMA)
-                          &lv_pixel_buf[tft->width() * LV_BUFFER_ROWS],
-#else
-                          NULL, // No double-buffering
-#endif
-                          tft->width() * LV_BUFFER_ROWS);
-
-    // Initialize LvGL display driver
-    lv_disp_drv_init(&lv_disp_drv);
 #if defined(ARDUINO_NRF52840_CLUE) || defined(ARDUINO_NRF52840_CIRCUITPLAY) || \
     defined(ARDUINO_SAMD_CIRCUITPLAYGROUND_EXPRESS)
     // ST7789 library (used by CLUE and TFT Gizmo for Circuit Playground
     // Express/Bluefruit) is sort of low-level rigged to a 240x320
     // screen, so this needs to work around that manually...
-    lv_disp_drv.hor_res = 240;
-    lv_disp_drv.ver_res = 240;
+    lv_display = lv_display_create(240, 240);
 #else
-    lv_disp_drv.hor_res = tft->width();
-    lv_disp_drv.ver_res = tft->height();
+    lv_display = lv_display_create(tft->width(), tft->width());
 #endif
-    lv_disp_drv.flush_cb = lv_flush_callback;
-    lv_disp_drv.draw_buf = &lv_disp_draw_buf;
-    lv_disp_drv.user_data = this;
-    lv_disp_drv_register(&lv_disp_drv);
+
+    lv_display_set_flush_cb(lv_display, lv_flush_callback);
+    lv_display_set_user_data(lv_display, this);
+    // Initialize LvGL display buffers. The "second half" buffer is only
+    // used if USE_SPI_DMA is enabled in Adafruit_GFX.
+    lv_display_set_buffers(lv_display, lv_pixel_buf.data(),
+#if defined(USE_SPI_DMA)
+                          lv_pixel_buf.data() + tft->width() * LV_BUFFER_ROWS,
+#else
+                          NULL, // No double-buffering
+#endif
+                          tft->width() * LV_BUFFER_ROWS, LV_DISPLAY_RENDER_MODE_PARTIAL);
 
     // Initialize LvGL input device (touchscreen already started)
     if ((touch)) { // Can also pass NULL if passive widget display
-      lv_indev_drv_init(&lv_indev_drv);          // Basic init
-      lv_indev_drv.type = LV_INDEV_TYPE_POINTER; // Is pointer dev
-      lv_indev_drv.read_cb = touchscreen_read;   // Read callback
-      lv_indev_drv.user_data = this;
-      lv_input_dev_ptr = lv_indev_drv_register(&lv_indev_drv);
+      lv_touchscreen = lv_indev_create();        // Basic init
+      lv_indev_set_type(lv_touchscreen, LV_INDEV_TYPE_POINTER); // Is pointer dev
+      lv_indev_set_read_cb(lv_touchscreen, touchscreen_read); // Read callback
+      lv_indev_set_user_data(lv_touchscreen, this);
     }
 
     // TIMER SETUP is architecture-specific ----------------------------
@@ -466,7 +454,9 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft, void *touch,
 #elif defined(ESP32) // ------------------------------------------------
     // Create a periodic timer to call `lv_tick_handler`
     const esp_timer_create_args_t periodic_timer_args = {
-        .callback = &lv_tick_handler, .name = "lv_tick_handler"};
+        .callback = &lv_tick_handler, 
+        .name = "lv_tick_handler"
+    };
     esp_timer_handle_t periodic_timer;
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
 
@@ -520,8 +510,7 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft, void *touch,
   }
 
   if (status != LVGL_OK) {
-    delete[] lv_pixel_buf;
-    lv_pixel_buf = NULL;
+    lv_pixel_buf.clear();
 #if defined(ARDUINO_ARCH_SAMD)
     delete zerotimer;
     zerotimer = NULL;

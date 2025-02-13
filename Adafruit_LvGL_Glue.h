@@ -49,11 +49,10 @@ public:
 
 private:
   LvGLStatus begin(Adafruit_SPITFT *tft, void *touch, bool debug);
-  static lv_disp_drv_t lv_disp_drv;
-  static lv_disp_draw_buf_t lv_disp_draw_buf;
-  static lv_color_t *lv_pixel_buf;
-  static lv_indev_drv_t lv_indev_drv;
-  lv_indev_t *lv_input_dev_ptr;
+  lv_display_t *lv_display;
+  lv_indev_t *lv_touchscreen;
+  std::vector<uint16_t> lv_pixel_buf{};
+
 #if defined(ARDUINO_ARCH_SAMD)
   Adafruit_ZeroTimer *zerotimer;
 #elif defined(ESP32)
