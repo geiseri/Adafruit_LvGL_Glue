@@ -228,6 +228,13 @@ static void touchscreen_read( lv_indev_t *indev_drv,  lv_indev_data_t *data) {
 #define LV_BUFFER_ROWS 8 // Most others have a bit more space
 #endif
 
+// This is the tick tracker for lvgl, just needs to return ms elapsed.
+static uint32_t lv_tick_callback(void)
+{
+  return millis();
+}
+
+
 // This is the flush function required for LittlevGL screen updates.
 // It receives a bounding rect and an array of pixel data (conveniently
 // already in 565 format, so the Earth was lucky there).
@@ -243,9 +250,8 @@ static void lv_flush_callback(lv_display_t *display_drv, const lv_area_t *area, 
   } else {
     glue->first_frame = false;
   }
-
-  uint16_t width = (area->x2 - area->x1 + 1);
-  uint16_t height = (area->y2 - area->y1 + 1);
+  uint32_t width = lv_area_get_width(area);
+  uint32_t height = lv_area_get_height(area);
   display->startWrite();
   display->setAddrWindow(area->x1, area->y1, width, height);
   display->writePixels(reinterpret_cast<uint16_t*>(data), width * height, false, LV_BIG_ENDIAN_SYSTEM);
@@ -255,7 +261,7 @@ static void lv_flush_callback(lv_display_t *display_drv, const lv_area_t *area, 
 #if (LV_USE_LOG)
 // Optional LittlevGL debug print function, writes to Serial if debug is
 // enabled when calling glue begin() function.
-static void lv_debug(const char *buf) { Serial.println(buf); }
+static void lv_debug(lv_log_level_t level, const char *buf) { (void) level;  Serial.println(buf); }
 #endif
 
 // GLUE LIB FUNCTIONS ------------------------------------------------------
@@ -357,7 +363,7 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft, void *touch,
     lv_log_register_print_cb(lv_debug); // Register debug print function
   }
 #endif
-
+  lv_tick_set_cb(lv_tick_callback);
   // Allocate LvGL display buffer (x2 because DMA double buffering)
   LvGLStatus status = LVGL_ERR_ALLOC;
 #if defined(USE_SPI_DMA)
@@ -387,11 +393,11 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft, void *touch,
     // used if USE_SPI_DMA is enabled in Adafruit_GFX.
     lv_display_set_buffers(lv_display, lv_pixel_buf.data(),
 #if defined(USE_SPI_DMA)
-                          lv_pixel_buf.data() + tft->width() * LV_BUFFER_ROWS,
+                          lv_pixel_buf.size(),
 #else
                           NULL, // No double-buffering
 #endif
-                          tft->width() * LV_BUFFER_ROWS, LV_DISPLAY_RENDER_MODE_PARTIAL);
+                          lv_pixel_buf.size(), LV_DISPLAY_RENDER_MODE_PARTIAL);
 
     // Initialize LvGL input device (touchscreen already started)
     if ((touch)) { // Can also pass NULL if passive widget display

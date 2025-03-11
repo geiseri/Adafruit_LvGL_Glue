@@ -4,8 +4,6 @@
 #include "Adafruit_LvGL_Glue.h"
 #include <SdFat.h>
 
-typedef File file_t;
-
 /**
  * @brief Class to act as a "glue" layer between the LvGL graphics library and
  * most of Adafruit's TFT displays, with added support for reading from SD card.

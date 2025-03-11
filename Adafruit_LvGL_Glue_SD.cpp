@@ -7,6 +7,10 @@ static void waitForDisplay(Adafruit_SPITFT *display) {
   display->endWrite();
 }
 
+struct fp_ {
+  File32 file;
+};
+
 // Callback functions to support reading images from SD cards
 static void *sd_open(lv_fs_drv_t *drv, const char *path, lv_fs_mode_t mode) {
   Adafruit_LvGL_Glue_SD *glue = (Adafruit_LvGL_Glue_SD *)drv->user_data;
@@ -18,9 +22,9 @@ static void *sd_open(lv_fs_drv_t *drv, const char *path, lv_fs_mode_t mode) {
   }
 
   SdFat *sd = glue->sd;
-  file_t file = sd->open(path);
+  auto file = sd->open(path);
 
-  if (!file) {
+  if (!file.isOpen()) {
     LV_LOG_ERROR("Failed to open file %s", path);
     return NULL;
   }
@@ -28,24 +32,16 @@ static void *sd_open(lv_fs_drv_t *drv, const char *path, lv_fs_mode_t mode) {
   if (!file.seek(0)) {
     return NULL;
   }
-
-  file_t *fp = (file_t *)malloc(sizeof(file_t));
-
-  if (fp == NULL) {
-    return NULL;
-  }
-
-  *fp = file;
-  return fp;
+  return new fp_{file};
 }
 
-static lv_fs_res_t sd_read(struct _lv_fs_drv_t *drv, void *file_p, void *buf,
+static lv_fs_res_t sd_read(struct lv_fs_drv_t *drv, void *file_p, void *buf,
                            uint32_t btr, uint32_t *br) {
   Adafruit_LvGL_Glue_SD *glue = (Adafruit_LvGL_Glue_SD *)drv->user_data;
   waitForDisplay(glue->display);
 
-  file_t *fp = (file_t *)file_p;
-  *br = fp->read(buf, btr);
+  fp_ *fp = (fp_ *)file_p;
+  *br = fp->file.read(buf, btr);
 
   return (*br != -1) ? LV_FS_RES_OK : LV_FS_RES_FS_ERR;
 }
@@ -54,9 +50,9 @@ static lv_fs_res_t sd_close(lv_fs_drv_t *drv, void *file_p) {
   Adafruit_LvGL_Glue_SD *glue = (Adafruit_LvGL_Glue_SD *)drv->user_data;
   waitForDisplay(glue->display);
 
-  file_t *fp = (file_t *)file_p;
-  lv_fs_res_t result = fp->close() ? LV_FS_RES_OK : LV_FS_RES_UNKNOWN;
-  free(fp);
+  fp_ *fp = (fp_ *)file_p;
+  lv_fs_res_t result = fp->file.close() ? LV_FS_RES_OK : LV_FS_RES_UNKNOWN;
+  delete fp;
 
   return result;
 }
@@ -66,16 +62,16 @@ static lv_fs_res_t sd_seek(lv_fs_drv_t *drv, void *file_p, uint32_t pos,
   Adafruit_LvGL_Glue_SD *glue = (Adafruit_LvGL_Glue_SD *)drv->user_data;
   waitForDisplay(glue->display);
 
-  file_t *fp = (file_t *)file_p;
-  return fp->seek(pos) ? LV_FS_RES_OK : LV_FS_RES_UNKNOWN;
+  fp_ *fp = (fp_ *)file_p;
+  return fp->file.seek(pos) ? LV_FS_RES_OK : LV_FS_RES_UNKNOWN;
 }
 
 static lv_fs_res_t sd_tell(lv_fs_drv_t *drv, void *file_p, uint32_t *pos_p) {
   Adafruit_LvGL_Glue_SD *glue = (Adafruit_LvGL_Glue_SD *)drv->user_data;
   waitForDisplay(glue->display);
 
-  file_t *fp = (file_t *)file_p;
-  *pos_p = fp->position();
+  fp_ *fp = (fp_ *)file_p;
+  *pos_p = fp->file.position();
 
   return LV_FS_RES_OK;
 }
